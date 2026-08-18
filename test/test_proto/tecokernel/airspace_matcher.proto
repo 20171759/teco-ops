@@ -1,0 +1,6 @@
+syntax = "proto2";
+package testpt;
+
+message AirspaceMatcherParam{
+    optional bool is_data_compression = 1 [default = false];
+}

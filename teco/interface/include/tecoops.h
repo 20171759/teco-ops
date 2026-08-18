@@ -187,6 +187,10 @@ tecoopsStatus_t tecoopsCausalConv1d(tecoopsHandle_t handle,
                                     const int *convStateIndices,
                                     const int8_t *hasInitialState);
 
+tecoopsStatus_t tecoopsAirspaceMatcher(tecoopsHandle_t handle, int gridSize, const void* dmask,
+                                       const void* gridEnvCode, const void* aircraftEnvCode, void* outFlag,
+                                       bool isDataCompression);
+
 #ifdef __cplusplus
 }
 #endif

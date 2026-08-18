@@ -205,6 +205,25 @@ void causal_conv1d_fn_torch(
     out.copy_(out_t.t());
 }
 
+void airspace_matcher_torch(
+    torch::Tensor dmask,            /* [1] uint64 */
+    torch::Tensor gridEnvCode,      /* [gridSize] uint64 */
+    torch::Tensor aircraftEnvCode,  /* [1] uint64 */
+    torch::Tensor outFlag,          /* [gridSize] uint64 */
+    bool isDataCompression) {
+    tecoopsHandle_t handle = getGlobalHandle();
+    int gridSize = gridEnvCode.size(0);
+
+    tecoopsAirspaceMatcher(
+        handle,
+        gridSize,
+        dmask.data_ptr(),
+        gridEnvCode.data_ptr(),
+        aircraftEnvCode.data_ptr(),
+        outFlag.data_ptr(),
+        isDataCompression);
+}
+
 PYBIND11_MODULE(_torch_ext, m) {
     m.def("flatten_rays", &flatten_rays_torch, "flatten_rays (SDAA)");
     m.def("morton3D_invert", &morton3D_invert_torch, "morton3D_invert (SDAA)");
@@ -212,4 +231,5 @@ PYBIND11_MODULE(_torch_ext, m) {
     m.def("rms_norm", &rms_norm_torch, "rms_norm (SDAA)");
     m.def("flash_attn_varlen_func", &flash_attn_varlen_func_torch, "flash_attn_varlen_func (SDAA)");
     m.def("causal_conv1d_fn_torch", &causal_conv1d_fn_torch, "causal_conv1d_fn_torch (SDAA)");
+    m.def("airspace_matcher", &airspace_matcher_torch, "airspace_matcher (SDAA)");
 }

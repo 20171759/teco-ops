@@ -1,0 +1,150 @@
+// BSD 3- Clause License Copyright (c) 2024, Tecorigin Co., Ltd. All rights
+// reserved.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+// Redistributions of source code must retain the above copyright notice,
+// this list of conditions and the following disclaimer.
+// Redistributions in binary form must reproduce the above copyright notice,
+// this list of conditions and the following disclaimer in the documentation
+// and/or other materials provided with the distribution.
+// Neither the name of the copyright holder nor the names of its contributors
+// may be used to endorse or promote products derived from this software
+// without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION)
+// HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY,OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)  ARISING IN ANY
+// WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+// OF SUCH DAMAGE.
+
+#include "teco_kernel_context.h"
+#include "ual/com/rt.h"
+#include "ual/kernel/airspace_matcher/airspace_matcher.h"
+#include "ual/kernel/macro.h"
+
+using namespace tecoops::ual::args;
+
+__global__ void teco_slave_airspace_matcher(AirspaceMatcherArgs arg) {
+    const int BLK = 4 * 1024 / 8;  // 一次dma的数据两大小.
+    uint64_t* ldm_gridEnvCode[2];
+    int* ldm_temp;
+    bool* ldm_outflag[2];
+    int tid = threadIdx;
+    const uint64_t* dmask_ptr = static_cast<const uint64_t*>(arg.dmask);
+    const uint64_t* gridEnvCode_ptr = static_cast<const uint64_t*>(arg.gridEnvCode);
+    const uint64_t* aircraftEnvCode_ptr = static_cast<const uint64_t*>(arg.aircraftEnvCode);
+    bool* outFlag = static_cast<bool*>(arg.outFlag);
+
+    ldm_gridEnvCode[0] = (uint64_t*)rt_ldm_malloc(BLK * sizeof(uint64_t));
+    ldm_gridEnvCode[1] = (uint64_t*)rt_ldm_malloc(BLK * sizeof(uint64_t));
+    ldm_temp = (int*)rt_ldm_malloc(BLK * sizeof(int));
+    ldm_outflag[0] = (bool*)rt_ldm_malloc(BLK);
+    ldm_outflag[1] = (bool*)rt_ldm_malloc(BLK);
+
+    int grid_size = arg.gridSize;
+    int per_loop = 32 * BLK;
+    int loops = (grid_size + per_loop - 1) / per_loop;
+    int cur_blk, next_blk, cur_offset, next_offset;
+    int db_curr_get = 0;
+    int db_curr_put = 0;
+    int db_curr_com = 0;
+
+    volatile int dma_get_reply[2];
+    volatile int dma_put_reply[2];
+    dma_get_reply[0] = 0;
+    dma_get_reply[1] = 0;
+    dma_put_reply[0] = 0;
+    dma_put_reply[1] = 0;
+
+    uint64_t diff, flag;
+
+    cur_blk = (tid + 1) * BLK <= grid_size ? BLK : grid_size % BLK;
+    cur_offset = tid * BLK;
+    if (cur_offset < grid_size) {
+        rt_dma_iget(ldm_gridEnvCode[0], gridEnvCode_ptr + cur_offset, cur_blk * sizeof(uint64_t),
+                    (void*)(&dma_get_reply[0]));
+    } else {
+        cur_blk = 0;
+        dma_get_reply[0] = 1;
+    }
+
+    for (int loop_id = 0; loop_id < loops; loop_id++) {
+        while (dma_get_reply[db_curr_get] != 1)
+            ;
+        dma_get_reply[db_curr_get] = 0;
+        db_curr_get = 1 - db_curr_get;
+
+        if (loop_id > 0) {
+            while (dma_put_reply[db_curr_put] != 1)
+                ;
+            dma_put_reply[db_curr_put] = 0;
+            db_curr_put = 1 - db_curr_put;
+        }
+        if (loop_id != loops - 1) {  // dma_next
+            next_offset = (loop_id + 1) * per_loop + tid * BLK;
+            next_blk = 0;
+            if (next_offset < grid_size) {
+                next_blk = next_offset + BLK <= grid_size ? BLK : grid_size % BLK;
+                rt_dma_iget(ldm_gridEnvCode[db_curr_get], gridEnvCode_ptr + next_offset,
+                            next_blk * sizeof(uint64_t), (void*)(&dma_get_reply[db_curr_get]));
+            } else {
+                dma_get_reply[db_curr_get] = 1;
+            }
+        }
+
+        // computer
+        uint64_t* p = ldm_gridEnvCode[db_curr_com];
+        bool* out = ldm_outflag[db_curr_com];
+        for (int i = 0; i < cur_blk; i++) {
+            diff = aircraftEnvCode_ptr[0] - p[i];
+            flag = diff & dmask_ptr[0];
+            out[i] = (flag != 0);
+        }
+
+        db_curr_com = 1 - db_curr_com;
+        // dma_put
+        cur_offset = loop_id * per_loop + tid * BLK;
+        if (cur_blk > 0) {
+            rt_dma_iput(outFlag + cur_offset, ldm_outflag[db_curr_put], BLK,
+                        (void*)(&dma_put_reply[db_curr_put]));
+        } else {
+            dma_put_reply[db_curr_put] = 1;
+        }
+
+        cur_blk = next_blk;
+    }
+
+    while (dma_put_reply[db_curr_put] != 1)
+        ;
+    dma_put_reply[db_curr_put] = 0;
+    db_curr_put = 1 - db_curr_put;
+
+    // int gridSize = arg.gridSize;
+    // int spe_num = arg.spe_num;
+
+    // const uint64_t* dmask = static_cast<const uint64_t*>(arg.dmask);
+    // const uint64_t* gridEnvCode = static_cast<const uint64_t*>(arg.gridEnvCode);
+
+    // const uint64_t* aircraftEnvCode = static_cast<const uint64_t*>(arg.aircraftEnvCode);
+    // bool* outFlag = static_cast<bool*>(arg.outFlag);
+
+    // uint64_t mask = dmask[0];
+    // uint64_t aircraft_code = aircraftEnvCode[0];
+
+    // size_t per_spe_num = (gridSize + spe_num - 1) / spe_num;
+    // size_t start = threadIdx * per_spe_num;
+    // size_t end = MIN(start + per_spe_num, (size_t)gridSize);
+
+    // for (size_t i = start; i < end; i++) {
+    //     uint64_t diff = aircraft_code - gridEnvCode[i];
+    //     uint64_t flag = diff & mask;
+    //     outFlag[i] = (flag != 0);
+    // }
+}
