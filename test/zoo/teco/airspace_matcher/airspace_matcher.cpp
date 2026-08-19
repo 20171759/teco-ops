@@ -89,19 +89,28 @@ int64_t AirspaceMatcherExecutor::getTheoryOps() {
 
 int64_t AirspaceMatcherExecutor::getTheoryIoSize() {
     constexpr int kUint64Size = 8;
+    constexpr int kInt32Size = 4;
+    constexpr int kInt16Size = 2;
     int64_t size = 0;
-    // read: dmask (1 uint64)
-    size += 1 * kUint64Size;
-    // read: gridEnvCode (gridSize uint64)
     if (!isDataCompression_) {
+        // read: dmask (1 uint64)
+        size += 1 * kUint64Size;
+        // read: gridEnvCode (gridSize uint64)
         size += static_cast<int64_t>(gridSize_) * kUint64Size;
+        // read: aircraftEnvCode (1 uint64)
+        size += 1 * kUint64Size;
+        // write: outFlag (gridSize bool, 1 byte each)
+        size += static_cast<int64_t>(gridSize_) * 1;
     } else {
-        size += static_cast<int64_t>(gridSize_) * 4;
+        // read: dmask (1 int32)
+        size += 1 * kInt32Size;
+        // read: gridEnvCode (gridSize int32)
+        size += static_cast<int64_t>(gridSize_) * kInt32Size;
+        // read: aircraftEnvCode (1 int32)
+        size += 1 * kInt32Size;
+        // write: outFlag (gridSize int16, 2 bytes each)
+        size += static_cast<int64_t>(gridSize_) * kInt16Size;
     }
-    // read: aircraftEnvCode (1 uint64)
-    size += 1 * kUint64Size;
-    // write: outFlag (gridSize bool, 1 byte each)
-    size += static_cast<int64_t>(gridSize_) * 1;
     return size;
 }
 

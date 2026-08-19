@@ -206,10 +206,10 @@ void causal_conv1d_fn_torch(
 }
 
 void airspace_matcher_torch(
-    torch::Tensor dmask,            /* [1] uint64 */
-    torch::Tensor gridEnvCode,      /* [gridSize] uint64 */
-    torch::Tensor aircraftEnvCode,  /* [1] uint64 */
-    torch::Tensor outFlag,          /* [gridSize] uint64 */
+    torch::Tensor dmask,            /* [1] uint64 or int32 (isDataCompression) */
+    torch::Tensor gridEnvCode,      /* [gridSize] uint64 or int32 (isDataCompression) */
+    torch::Tensor aircraftEnvCode,  /* [1] uint64 or int32 (isDataCompression) */
+    torch::Tensor outFlag,          /* [gridSize] bool or int16 (isDataCompression) */
     bool isDataCompression) {
     tecoopsHandle_t handle = getGlobalHandle();
     int gridSize = gridEnvCode.size(0);

@@ -33,9 +33,10 @@ namespace ops {
 using tecoops::ual::args::AirspaceMatcherPatchArgs;
 
 int findAirspaceMatcherBranch(const AirspaceMatcherPatchArgs *arg) {
-     int algo = 0;
-    // index 0: airspace_matcher uint64
-    return algo;
+    if (arg->atargs->isDataCompression) {
+        return 1;  // index 1: int32 bitwise match (data compression)
+    }
+    return 0;  // index 0: uint64 bitwise match
 }
 
 }  // namespace ops

@@ -32,5 +32,6 @@
 using tecoops::ual::args::AirspaceMatcherArgs;
 
 __global__ void teco_slave_airspace_matcher(AirspaceMatcherArgs args);
+__global__ void teco_slave_airspace_matcher_int32(AirspaceMatcherArgs args);
 
 #endif  // TECO_UAL_KERNEL_AIRSPACE_MATCHER_AIRSPACE_MATCHER_H_

@@ -186,7 +186,8 @@ tecoopsStatus_t tecoopsCausalConv1d(tecoopsHandle_t handle,
                                     const int *queryStartLoc,
                                     const int *convStateIndices,
                                     const int8_t *hasInitialState);
-
+// 如果 intput的数据类型是uint64, isDataCompression = flase, outFlag的输出类型是bool
+// 如果 intput的数据类型是uint32, isDataCompression = true, outFlag的输出类型是short
 tecoopsStatus_t tecoopsAirspaceMatcher(tecoopsHandle_t handle, int gridSize, const void* dmask,
                                        const void* gridEnvCode, const void* aircraftEnvCode, void* outFlag,
                                        bool isDataCompression);

@@ -117,7 +117,7 @@ __global__ void teco_slave_airspace_matcher(AirspaceMatcherArgs arg) {
         // dma_put
         cur_offset = loop_id * per_loop + tid * BLK;
         if (cur_blk > 0) {
-            rt_dma_iput(outFlag + cur_offset, ldm_outflag[db_curr_put], BLK,
+            rt_dma_iput(outFlag + cur_offset, ldm_outflag[db_curr_put], (cur_blk + 3) / 4 * 4,
                         (void*)(&dma_put_reply[db_curr_put]));
         } else {
             dma_put_reply[db_curr_put] = 1;
@@ -152,4 +152,129 @@ __global__ void teco_slave_airspace_matcher(AirspaceMatcherArgs arg) {
     //     uint64_t flag = diff & mask;
     //     outFlag[i] = (flag != 0);
     // }
+}
+
+__global__ void teco_slave_airspace_matcher_int32(AirspaceMatcherArgs arg) {
+    const int BLK = 4 * 1024 / 4;  // 1024 int32 elements per DMA (4KB)
+    int32_t* ldm_gridEnvCode[2];
+    int16_t* ldm_outflag[2];
+    int tid = threadIdx;
+    const int32_t* dmask_ptr = static_cast<const int32_t*>(arg.dmask);
+    const int32_t* gridEnvCode_ptr = static_cast<const int32_t*>(arg.gridEnvCode);
+    const int32_t* aircraftEnvCode_ptr = static_cast<const int32_t*>(arg.aircraftEnvCode);
+    int16_t* outFlag = static_cast<int16_t*>(arg.outFlag);
+
+    ldm_gridEnvCode[0] = (int32_t*)rt_ldm_malloc(BLK * sizeof(int32_t));
+    ldm_gridEnvCode[1] = (int32_t*)rt_ldm_malloc(BLK * sizeof(int32_t));
+    ldm_outflag[0] = (int16_t*)rt_ldm_malloc(BLK * sizeof(int16_t));
+    ldm_outflag[1] = (int16_t*)rt_ldm_malloc(BLK * sizeof(int16_t));
+
+    int grid_size = arg.gridSize;
+    int per_loop = 32 * BLK;
+    int loops = (grid_size + per_loop - 1) / per_loop;
+    int cur_blk, next_blk, cur_offset, next_offset;
+    int db_curr_get = 0;
+    int db_curr_put = 0;
+    int db_curr_com = 0;
+    intv16 vdmask = dmask_ptr[0];
+    intv16 vaircraftEnvCode = aircraftEnvCode_ptr[0];
+    intv16 vcomp = 0;
+    intv16 v0, v1, v2, v3;
+
+    volatile int dma_get_reply[2];
+    volatile int dma_put_reply[2];
+    dma_get_reply[0] = 0;
+    dma_get_reply[1] = 0;
+    dma_put_reply[0] = 0;
+    dma_put_reply[1] = 0;
+
+    int32_t diff, flag;
+
+    cur_blk = (tid + 1) * BLK <= grid_size ? BLK : grid_size % BLK;
+    cur_offset = tid * BLK;
+    if (cur_offset < grid_size) {
+        rt_dma_iget(ldm_gridEnvCode[0], gridEnvCode_ptr + cur_offset, cur_blk * sizeof(int32_t),
+                    (void*)(&dma_get_reply[0]));
+    } else {
+        cur_blk = 0;
+        dma_get_reply[0] = 1;
+    }
+
+    for (int loop_id = 0; loop_id < loops; loop_id++) {
+        while (dma_get_reply[db_curr_get] != 1)
+            ;
+        dma_get_reply[db_curr_get] = 0;
+        db_curr_get = 1 - db_curr_get;
+
+        if (loop_id != loops - 1) {
+            next_offset = (loop_id + 1) * per_loop + tid * BLK;
+            next_blk = 0;
+            if (next_offset < grid_size) {
+                next_blk = next_offset + BLK <= grid_size ? BLK : grid_size % BLK;
+                rt_dma_iget(ldm_gridEnvCode[db_curr_get], gridEnvCode_ptr + next_offset,
+                            next_blk * sizeof(int32_t), (void*)(&dma_get_reply[db_curr_get]));
+            } else {
+                dma_get_reply[db_curr_get] = 1;
+            }
+        }
+
+        // compute
+        int32_t* p = ldm_gridEnvCode[db_curr_com];
+        short* out = ldm_outflag[db_curr_com];
+        // for (int i = 0; i < cur_blk; i++) {
+        //     diff = aircraftEnvCode_ptr[0] - p[i];
+        //     flag = diff & dmask_ptr[0];
+        //     out[i] = (int16_t)(flag != 0);
+        // }
+        for (int i = 0; i < cur_blk; i += 64) {
+            simd_load(v0, p);
+            simd_load(v1, p + 16);
+            simd_load(v2, p + 32);
+            simd_load(v3, p + 48);
+            v0 = vaircraftEnvCode - v0;
+            v1 = vaircraftEnvCode - v1;
+            v2 = vaircraftEnvCode - v2;
+            v3 = vaircraftEnvCode - v3;
+
+            v0 = v0 & vdmask;
+            v1 = v1 & vdmask;
+            v2 = v2 & vdmask;
+            v3 = v3 & vdmask;
+            v0 = simd_cmpgt(v0, vcomp);
+            v1 = simd_cmpgt(v1, vcomp);
+            v2 = simd_cmpgt(v2, vcomp);
+            v3 = simd_cmpgt(v3, vcomp);
+
+            simd_store_narrow(v0, out);
+            simd_store_narrow(v1, out + 16);
+            simd_store_narrow(v2, out + 32);
+            simd_store_narrow(v3, out + 48);
+            p += 64;
+            out += 64;
+        }
+
+        if (loop_id > 0) {
+            while (dma_put_reply[db_curr_put] != 1)
+                ;
+            dma_put_reply[db_curr_put] = 0;
+            db_curr_put = 1 - db_curr_put;
+        }
+        db_curr_com = 1 - db_curr_com;
+
+        // dma_put
+        cur_offset = loop_id * per_loop + tid * BLK;
+        if (cur_blk > 0) {
+            rt_dma_iput(outFlag + cur_offset, ldm_outflag[db_curr_put], cur_blk * sizeof(int16_t),
+                        (void*)(&dma_put_reply[db_curr_put]));
+        } else {
+            dma_put_reply[db_curr_put] = 1;
+        }
+
+        cur_blk = next_blk;
+    }
+
+    while (dma_put_reply[db_curr_put] != 1)
+        ;
+    dma_put_reply[db_curr_put] = 0;
+    db_curr_put = 1 - db_curr_put;
 }

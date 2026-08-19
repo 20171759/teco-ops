@@ -1,27 +1,27 @@
 op_name: "airspace_matcher"
 
-# Input[0]: dmask [1]
+# Input[0]: dmask [1] (int32)
 input {
   id: "dmask"
   shape: {
     dims: 1
   }
   layout: LAYOUT_ARRAY
-  dtype: DTYPE_INT64
+  dtype: DTYPE_INT32
   ttype: TENSOR
   prev_value: {
-    value_l: -149879795598856
+    value_i: 65535
   }
 }
 
-# Input[1]: gridEnvCode [gridSize=256]
+# Input[1]: gridEnvCode [gridSize=10000000] (int32, random)
 input {
   id: "gridEnvCode"
   shape: {
     dims: 10000000
   }
   layout: LAYOUT_ARRAY
-  dtype: DTYPE_INT64
+  dtype: DTYPE_INT32
   ttype: TENSOR
   random_data: {
     seed: 42
@@ -31,33 +31,33 @@ input {
   }
 }
 
-# Input[2]: aircraftEnvCode [1]
+# Input[2]: aircraftEnvCode [1] (int32)
 input {
   id: "aircraftEnvCode"
   shape: {
     dims: 1
   }
   layout: LAYOUT_ARRAY
-  dtype: DTYPE_INT64
+  dtype: DTYPE_INT32
   ttype: TENSOR
   prev_value: {
-    value_l: -134875765798886
+    value_i: 500000
   }
 }
 
-# Output[0]: outFlag [gridSize=256]
+# Output[0]: outFlag [gridSize=10000000] (int16)
 output {
   id: "outFlag"
   shape: {
     dims: 10000000
   }
   layout: LAYOUT_ARRAY
-  dtype: DTYPE_BOOL
+  dtype: DTYPE_INT16
   ttype: TENSOR
 }
 
 tecokernel_param: {
   airspace_matcher_param: {
-    is_data_compression: false
+    is_data_compression: true
   }
 }

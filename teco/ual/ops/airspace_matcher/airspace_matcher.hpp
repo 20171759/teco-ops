@@ -49,10 +49,12 @@ struct AirspaceMatcherType {
 
 static AirspaceMatcherType::PImplType AirspaceMatcherAlgos[] = {
     teco_slave_airspace_matcher,  // index 0: uint64 bitwise match
+    teco_slave_airspace_matcher_int32,  // index 1: int32 bitwise match (data compression)
 };
 
 static const char *AirspaceMatcherDiscription[] = {
     "teco_slave_airspace_matcher",
+    "teco_slave_airspace_matcher_int32",
 };
 
 struct AirspaceMatcherOp : public BaseOp<AirspaceMatcherOp, AirspaceMatcherType> {

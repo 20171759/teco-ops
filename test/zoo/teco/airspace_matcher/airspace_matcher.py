@@ -46,7 +46,6 @@ def _airspace_matcher_ref(dmask, gridEnvCode, aircraftEnvCode):
         Flag[i] = (aircraftEnvCode - gridEnvCode[i]) & DMASK
         outFlag[i] = 0 if Flag == 0 (match), else 1 (no match)
     """
-    # diff = np.int64(aircraftEnvCode) - np.int64(gridEnvCode)
     aircraftEnvCode_u64 = aircraftEnvCode.view(np.uint64)
     gridEnvCode_u64 = gridEnvCode.view(np.uint64)
     dmask_u64 = dmask.view(np.uint64)
@@ -55,6 +54,23 @@ def _airspace_matcher_ref(dmask, gridEnvCode, aircraftEnvCode):
     flag = diff & dmask_u64
     outFlag = (flag != 0)
     return outFlag.astype(bool)
+
+
+def _airspace_matcher_ref_int32(dmask, gridEnvCode, aircraftEnvCode):
+    """CPU reference for airspace_matcher (int32 data compression mode)
+
+    For each grid i:
+        Flag[i] = (aircraftEnvCode - gridEnvCode[i]) & DMASK
+        outFlag[i] = 0 if Flag == 0 (match), else 1 (no match)
+    """
+    aircraftEnvCode_i32 = aircraftEnvCode.view(np.int32)
+    gridEnvCode_i32 = gridEnvCode.view(np.int32)
+    dmask_i32 = dmask.view(np.int32)
+    diff = aircraftEnvCode_i32 - gridEnvCode_i32
+
+    flag = diff & dmask_i32
+    outFlag = (flag != 0).astype(np.int16)
+    return outFlag
 
 
 def check_inputs(param_path, input_lists, reuse_lists, output_lists):
@@ -85,22 +101,36 @@ def test_airspace_matcher(param_path, input_lists, reuse_lists, output_lists, de
     input_params = params["input"]
     output_params = params["output"]
 
+    # Read is_data_compression from tecokernel_param
+    kernel_param = params.get("tecokernel_param", {})
+    matcher_param = kernel_param.get("airspace_matcher_param", {})
+    is_data_compression = bool(matcher_param.get("is_data_compression", False))
+
     # Read input tensors
     dmask = to_tensor(input_lists[0], input_params[0], device=device)       # [1]
     gridEnvCode = to_tensor(input_lists[1], input_params[1], device=device) # [gridSize]
     aircraftEnvCode = to_tensor(input_lists[2], input_params[2], device=device)  # [1]
 
-    # Convert to numpy uint64
-    dmask_np = np.int64(dmask.cpu().numpy()) if hasattr(dmask, 'cpu') else np.int64(dmask)
-    grid_np = np.int64(gridEnvCode.cpu().numpy()) if hasattr(gridEnvCode, 'cpu') else np.int64(gridEnvCode)
-    aircraft_np = np.int64(aircraftEnvCode.cpu().numpy()) if hasattr(aircraftEnvCode, 'cpu') else np.int64(aircraftEnvCode)
+    if is_data_compression:
+        # int32 inputs, int16 output
+        dmask_np = np.int32(dmask.cpu().numpy()) if hasattr(dmask, 'cpu') else np.int32(dmask)
+        grid_np = np.int32(gridEnvCode.cpu().numpy()) if hasattr(gridEnvCode, 'cpu') else np.int32(gridEnvCode)
+        aircraft_np = np.int32(aircraftEnvCode.cpu().numpy()) if hasattr(aircraftEnvCode, 'cpu') else np.int32(aircraftEnvCode)
 
-    # Scalar values
-    dmask_val = dmask_np.flatten()[0]
-    aircraft_val = aircraft_np.flatten()[0]
+        dmask_val = dmask_np.flatten()[0]
+        aircraft_val = aircraft_np.flatten()[0]
 
-    # Call reference
-    outFlag = torch.from_numpy(_airspace_matcher_ref(dmask_val, grid_np, aircraft_val))
+        outFlag = torch.from_numpy(_airspace_matcher_ref_int32(dmask_val, grid_np, aircraft_val))
+    else:
+        # uint64 inputs, bool output
+        dmask_np = np.int64(dmask.cpu().numpy()) if hasattr(dmask, 'cpu') else np.int64(dmask)
+        grid_np = np.int64(gridEnvCode.cpu().numpy()) if hasattr(gridEnvCode, 'cpu') else np.int64(gridEnvCode)
+        aircraft_np = np.int64(aircraftEnvCode.cpu().numpy()) if hasattr(aircraftEnvCode, 'cpu') else np.int64(aircraftEnvCode)
+
+        dmask_val = dmask_np.flatten()[0]
+        aircraft_val = aircraft_np.flatten()[0]
+
+        outFlag = torch.from_numpy(_airspace_matcher_ref(dmask_val, grid_np, aircraft_val))
 
     # Save output
     with open(output_lists[0], "wb") as f:

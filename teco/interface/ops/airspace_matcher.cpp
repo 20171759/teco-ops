@@ -74,7 +74,11 @@ tecoopsStatus_t tecoopsAirspaceMatcher(tecoopsHandle_t handle, int gridSize, con
 
     AirspaceMatcherPatchArgs patch_arg;
     patch_arg.atargs = &arg;
-    patch_arg.data_type = tecoops::ual::common::UAL_DTYPE_BOOL;
+    if (isDataCompression) {
+        patch_arg.data_type = tecoops::ual::common::UAL_DTYPE_INT16;
+    } else {
+        patch_arg.data_type = tecoops::ual::common::UAL_DTYPE_BOOL;
+    }
 
     RUN_OP(AirspaceMatcherOp, arg, patch_arg, handle);
     return TECOOPS_STATUS_SUCCESS;
